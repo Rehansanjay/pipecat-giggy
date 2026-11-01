@@ -48,8 +48,9 @@ uv add pipecat-giggy
 
 Or use `python -m pip install pipecat-giggy`.
 
-For the unpublished V25 behavior shown in this checkout, install the local source
-inside an activated virtual environment instead:
+The published `0.3.1` package includes the V25 behavior described below. To work
+on the adapter source and run its tests, install this checkout in an activated
+virtual environment:
 
 ```sh
 python -m pip install -e ".[test]"
@@ -57,8 +58,8 @@ python -m pip install -e ".[test]"
 
 Published `0.2.0` behavior is documented in its
 [tagged README](https://github.com/giggy-ai/pipecat-giggy/blob/v0.2.0/README.md).
-The live and recording examples below describe this checkout; use its editable
-installation when running those files.
+The live and recording examples below target version `0.3.1`. Use the editable
+installation above when developing or testing the checkout itself.
 
 Requires Python 3.11 or later. This checkout is tested with Python 3.11.9 and Pipecat 1.12.0;
 the dependency is pinned to that Pipecat release until later releases are tested.
@@ -203,15 +204,15 @@ It sends audio while the user speaks, emits cumulative provisional text through
 `TranscriptionFrame` when the ownership-fenced stream marks its snapshot complete.
 It then drains completion and verifies the saved transcript matches that final;
 storage or verification failures remain visible even after text delivery.
-The published 0.2.0 package still waits for completed-operation verification and
-canonical transcript retrieval; this latency change has not been published.
+The older 0.2.0 package waits for completed-operation verification and canonical
+transcript retrieval; version 0.3.1 includes the earlier final-publication behavior.
 Display each interim snapshot by replacement; do not append revisions or treat
 them as committed user text. No STT voice UUID is required.
 
-These V25 integration changes are local and not yet published. Install `pipecat-giggy>=0.2.0` for released STT; version 0.1.0 contains TTS only.
+Install `pipecat-giggy==0.3.1` for the V25 integration described here. Version 0.1.0 contains TTS only; 0.2.0 retains its earlier STT transport.
 
 ```sh
-python -m pip install "pipecat-giggy>=0.2.0"
+python -m pip install "pipecat-giggy==0.3.1"
 ```
 
 [Watch the two-voice STT conversation demo](https://github.com/giggy-ai/pipecat-giggy/releases/download/v0.2.0/giggy-pipecat-stt-live-chat.mp4).
@@ -425,3 +426,9 @@ lifecycle, interruption, protocol and metrics checks. The project remains
 `pipecat-giggy` on GitHub/PyPI and `pipecat_giggy` in Python, following Pipecat's
 community naming recommendation. No alias package or automatic provider fallback
 is installed.
+
+## Keeping HTTP TTS connected
+
+Pipeline start now preconnects the TTS session; stop, cancellation and cleanup stop its health task. For custom lifecycles, call `await tts.connect()` before the first utterance and `await tts.disconnect()` when done. The caller still owns and closes the supplied HTTP session. Prefer `aiohttp.ClientSession(connector=aiohttp.TCPConnector(keepalive_timeout=60))` for a dedicated speech session.
+
+A credential-free health GET runs every 20 seconds while connected; a caller pool with a shorter idle lifetime gets an earlier heartbeat. This does not change the caller's connector or close their session. Health checks create no generations and spend no credits. Only health checks are attempted again after network failure; paid synthesis is never replayed. HTTP connection warmth does not warm the model or pre-open an STT WebSocket.

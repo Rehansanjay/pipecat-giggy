@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 import aiohttp
 from pipecat.frames.frames import (
@@ -14,9 +15,7 @@ from pipecat.services.settings import TTSSettings
 from pipecat.services.tts_service import TTSService
 from pipecat.utils.tracing.service_decorators import traced_tts
 from pipecat.utils.types import NOT_GIVEN, NotGiven
-
-GIGGY_SPEECH_URL = 'https://api.giggy.ai/v1/audio/speech'
-
+from ._connection import ConnectionWarmer
 
 @dataclass
 class GiggyTTSSettings(TTSSettings):
@@ -39,6 +38,7 @@ class GiggyHttpTTSService(TTSService):
         aiohttp_session: aiohttp.ClientSession,
         sample_rate: int = 24000,
         speed: float = 1.0,
+        base_url: str = 'https://api.giggy.ai/v1',
         **kwargs,
     ):
         """Create the service using a caller-owned aiohttp session.
@@ -49,6 +49,7 @@ class GiggyHttpTTSService(TTSService):
             aiohttp_session: HTTP session owned and closed by the application.
             sample_rate: PCM output rate: 24000 Hz (mono Streaming contract).
             speed: Speech speed from 0.25 to 4 inclusive.
+            base_url: HTTPS Giggy API v1 base URL (HTTP only for explicit loopback development).
             **kwargs: Additional Pipecat TTSService options.
         """
         if getattr(aiohttp_session, "auth", None) is not None or any(
@@ -65,6 +66,29 @@ class GiggyHttpTTSService(TTSService):
             raise ValueError(
                 'voice_id is required.'
             )
+
+        try:
+            parsed_base = urlsplit(base_url)
+            hostname = parsed_base.hostname
+            port = parsed_base.port
+        except ValueError as error:
+            raise ValueError('base_url must be a valid Giggy API v1 URL.') from error
+        loopback = hostname in {'localhost', '127.0.0.1', '::1'}
+        if (
+            parsed_base.scheme not in {'https', 'http'}
+            or (parsed_base.scheme != 'https' and not (parsed_base.scheme == 'http' and loopback))
+            or not hostname
+            or parsed_base.username is not None
+            or parsed_base.password is not None
+            or '?' in base_url
+            or '#' in base_url
+            or parsed_base.query
+            or parsed_base.fragment
+            or parsed_base.netloc.endswith(':')
+            or parsed_base.path.rstrip('/') != '/v1'
+            or (port is not None and not 1 <= port <= 65535)
+        ):
+            raise ValueError('base_url must be HTTPS at the exact /v1 path, except HTTP loopback development URLs.')
 
         if sample_rate != 24000:
             raise ValueError(
@@ -96,6 +120,38 @@ class GiggyHttpTTSService(TTSService):
 
         self._api_key = api_key
         self._session = aiohttp_session
+        self._speech_url = base_url.rstrip('/') + '/audio/speech'
+        self._connection = ConnectionWarmer(lambda: self._session, base_url)
+
+    async def connect(self) -> bool:
+        """Preconnect without synthesizing audio or consuming generation credits."""
+        return await self._connection.connect()
+
+    async def disconnect(self) -> None:
+        """Stop health checks without closing the caller's HTTP session."""
+        await self._connection.aclose()
+
+    async def start(self, frame):
+        await super().start(frame)
+        await self.connect()
+
+    async def stop(self, frame):
+        try:
+            await super().stop(frame)
+        finally:
+            await self.disconnect()
+
+    async def cancel(self, frame):
+        try:
+            await super().cancel(frame)
+        finally:
+            await self.disconnect()
+
+    async def cleanup(self):
+        try:
+            await super().cleanup()
+        finally:
+            await self.disconnect()
 
     def can_generate_metrics(self) -> bool:
         """Enable Pipecat's TTS usage and first-audio metrics."""
@@ -156,7 +212,7 @@ class GiggyHttpTTSService(TTSService):
 
         try:
             async with self._session.post(
-                GIGGY_SPEECH_URL,
+                self._speech_url,
                 json=payload,
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=None, sock_connect=10, sock_read=90),

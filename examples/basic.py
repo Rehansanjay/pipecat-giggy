@@ -41,7 +41,7 @@ async def main():
         raise ValueError("Speech text must not be empty.")
     errors = []
     output = PCMOutput()
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(keepalive_timeout=60)) as session:
         tts = GiggyHttpTTSService(
             api_key=os.environ["GIGGY_API_KEY"],
             voice_id=os.environ["GIGGY_VOICE_ID"],

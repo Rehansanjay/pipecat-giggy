@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 — 2026-11-01
+
+- Preconnect HTTP TTS on pipeline start and maintain it with non-billable health checks; stop checks on stop, cancellation and cleanup.
+- Keep caller-owned sessions open, adapt the heartbeat to their idle retention, and expose `connect()` / `disconnect()` for custom lifecycles.
+- Retain strict API-origin validation and no automatic paid-request replay.
+
 ## 0.3.1 — 2026-10-24
 
 - Keep the continuous speech detector authoritative while a following STT reservation awaits readiness, so upstream VAD cannot split speech during that wait.
