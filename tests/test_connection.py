@@ -8,6 +8,30 @@ import pipecat_giggy as provider_module
 
 class WarmConnectionTests(unittest.IsolatedAsyncioTestCase):
 
+    async def test_mutated_caller_credentials_are_not_sent_by_health_checks(self):
+        calls = []
+        async def health(request):
+            calls.append(dict(request.headers))
+            return web.Response(body=b'ok')
+        app = web.Application()
+        app.router.add_get('/__ingress/health', health)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '127.0.0.1', 0)
+        await site.start()
+        base = 'http://127.0.0.1:' + str(site._server.sockets[0].getsockname()[1]) + '/v1'
+        try:
+            async with aiohttp.ClientSession() as session:
+                provider = provider_module.GiggyHttpTTSService(api_key='test-key', voice_id='voice', aiohttp_session=session, base_url=base)
+                session.headers['Authorization'] = 'Bearer caller-private-default'
+                self.assertFalse(await provider.connect())
+                self.assertEqual(calls, [])
+                await provider.disconnect()
+                self.assertFalse(session.closed)
+        finally:
+            await runner.cleanup()
+
+
     async def test_dev_health_route_fallback(self):
         app = web.Application()
         async def health(request):

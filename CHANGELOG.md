@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3 — 2026-11-01
+
+- Check caller-session default credentials at every connection heartbeat, including headers added after service construction. Keep those sessions out of anonymous connection checks without mutating or closing them.
+
 ## 0.3.2 — 2026-11-01
 
 - Preconnect HTTP TTS on pipeline start and maintain it with non-billable health checks; stop checks on stop, cancellation and cleanup.
